@@ -11,14 +11,15 @@ file is gone is kept, marked pruned: the index doubles as the archive.
 Dedup is per file (streamed replies repeat their message id); the data has
 no call repeated across files.
 """
-import json, os, re, sys, time
+import json, os, re, shutil, sys, time
 from collections import Counter
 from datetime import datetime
 # Run with python3 -I by the mod, which leaves this folder off sys.path.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from prices import cost_parts
+from prices import cost_parts, n
 
 V = 1
+TOKENS = ('input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')
 WORKTREE = re.compile(r'^(.*?)/\.?worktrees/([^/]+)')
 COMMAND = re.compile(r'<command-name>/?([^<\s]+)</command-name>')
 
@@ -72,7 +73,7 @@ def add_tool(r, b):
 
 def parse(path):
     name = os.path.basename(path)
-    agent_file = name.startswith('agent-') or 'subagents' in path.split(os.sep)
+    agent_file = name.startswith('agent-') or os.path.basename(os.path.dirname(path)) == 'subagents'
     r = {'sessionId': None, 'agentFile': agent_file, 'pruned': False, 'cwd': None, 'project': None, 'worktree': None,
          'start': None, 'end': None, 'startDay': None, 'startHour': None, 'versions': {}, 'branches': {},
          'models': {}, 'tools': {}, 'skills': {}, 'agents': {}, 'mcp': {}, 'commands': {}, 'days': {},
@@ -83,50 +84,59 @@ def parse(path):
             if '"timestamp"' not in line: continue
             try: e = json.loads(line)
             except ValueError: r['skipped'] += 1; continue
-            if not isinstance(e, dict) or not isinstance(e.get('timestamp'), str): continue
-            try: t = datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00')).astimezone()
-            except ValueError: r['skipped'] += 1; continue
-            iso = t.isoformat(timespec='seconds')
-            if r['start'] is None or iso < r['start']:
-                r['start'], r['startDay'], r['startHour'] = iso, t.date().isoformat(), t.hour
-            if r['end'] is None or iso > r['end']: r['end'] = iso
-            if not r['sessionId'] and isinstance(e.get('sessionId'), str): r['sessionId'] = e['sessionId']
-            if isinstance(e.get('cwd'), str) and e['cwd']: cwds[e['cwd']] += 1
-            if e.get('version'): bump(r['versions'], str(e['version']))
-            if e.get('gitBranch') and e['gitBranch'] != 'HEAD': bump(r['branches'], str(e['gitBranch']))
-            typ = e.get('type'); uuid = e.get('uuid')
-            if typ in ('user', 'system') and uuid not in msgs:
-                for c in COMMAND.findall(text_of(e)): bump(r['commands'], c)
-            if typ not in ('user', 'assistant'):
-                if uuid: msgs.add(uuid)
-                continue
-            day = r['days'].setdefault(t.date().isoformat(), {'m': 0, 'c': 0})
-            if uuid and uuid not in msgs: msgs.add(uuid); day['m'] += 1
-            m = e.get('message')
-            if typ != 'assistant' or not isinstance(m, dict): continue
-            for b in m.get('content') or []:
-                if isinstance(b, dict) and b.get('type') == 'tool_use' and b.get('id') and b['id'] not in tools:
-                    tools.add(b['id']); add_tool(r, b)
-            u, mid, model = m.get('usage'), m.get('id'), m.get('model')
-            if not u or not mid or model in (None, '<synthetic>'): continue
-            key = (mid, e.get('requestId'))
-            if key in calls: continue
-            calls.add(key)
-            parts, miss = cost_parts(u, model)
-            if miss: unpriced.add(miss)
-            usd = sum(parts.values())
-            s = r['models'].setdefault(model, {'calls': 0, 'in': 0, 'out': 0, 'cr': 0, 'cw': 0, 'usd': 0.0,
-                                               'usdParts': {'in': 0.0, 'out': 0.0, 'cr': 0.0, 'cw': 0.0},
-                                               'agentCalls': 0, 'agentUsd': 0.0})
-            s['calls'] += 1
-            s['in'] += u.get('input_tokens', 0) or 0
-            s['out'] += u.get('output_tokens', 0) or 0
-            s['cr'] += u.get('cache_read_input_tokens', 0) or 0
-            s['cw'] += u.get('cache_creation_input_tokens', 0) or 0
-            s['usd'] += usd
-            for k, v in parts.items(): s['usdParts'][k] += v
-            if agent_file or e.get('isSidechain'): s['agentCalls'] += 1; s['agentUsd'] += usd
-            day['c'] += 1
+            try:
+                if not isinstance(e, dict) or not isinstance(e.get('timestamp'), str): continue
+                try: t = datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00')).astimezone()
+                except ValueError: r['skipped'] += 1; continue
+                iso = t.isoformat(timespec='seconds')
+                if r['start'] is None or iso < r['start']:
+                    r['start'], r['startDay'], r['startHour'] = iso, t.date().isoformat(), t.hour
+                if r['end'] is None or iso > r['end']: r['end'] = iso
+                if not r['sessionId'] and isinstance(e.get('sessionId'), str): r['sessionId'] = e['sessionId']
+                if isinstance(e.get('cwd'), str) and e['cwd']: cwds[e['cwd']] += 1
+                if e.get('version'): bump(r['versions'], str(e['version']))
+                if e.get('gitBranch') and e['gitBranch'] != 'HEAD': bump(r['branches'], str(e['gitBranch']))
+                typ = e.get('type'); uuid = e.get('uuid')
+                if typ in ('user', 'system') and uuid not in msgs:
+                    for c in COMMAND.findall(text_of(e)): bump(r['commands'], c)
+                if typ not in ('user', 'assistant'):
+                    if uuid: msgs.add(uuid)
+                    continue
+                day = r['days'].setdefault(t.date().isoformat(), {'m': 0, 'c': 0})
+                if uuid and uuid not in msgs: msgs.add(uuid); day['m'] += 1
+                m = e.get('message')
+                if typ != 'assistant' or not isinstance(m, dict): continue
+                content = m.get('content')
+                if content is not None and not isinstance(content, (list, str)): raise ValueError('content')
+                for b in content if isinstance(content, list) else []:
+                    if isinstance(b, dict) and b.get('type') == 'tool_use' and b.get('id') and b['id'] not in tools:
+                        tools.add(b['id']); add_tool(r, b)
+                u, mid, model = m.get('usage'), m.get('id'), m.get('model')
+                if not u or not mid or model in (None, '<synthetic>'): continue
+                # a malformed usage skips the line (counted) rather than count as a call
+                if not isinstance(u, dict) or any(u.get(k) is not None and n(u[k]) != u[k] for k in TOKENS) \
+                        or not isinstance(u.get('cache_creation') or {}, dict):
+                    raise ValueError('usage')
+                key = (mid, e.get('requestId'))
+                if key in calls: continue
+                calls.add(key)
+                parts, miss = cost_parts(u, model)
+                if miss: unpriced.add(miss)
+                usd = sum(parts.values())
+                s = r['models'].setdefault(model, {'calls': 0, 'in': 0, 'out': 0, 'cr': 0, 'cw': 0, 'usd': 0.0,
+                                                   'usdParts': {'in': 0.0, 'out': 0.0, 'cr': 0.0, 'cw': 0.0},
+                                                   'agentCalls': 0, 'agentUsd': 0.0})
+                s['calls'] += 1
+                s['in'] += n(u.get('input_tokens'))
+                s['out'] += n(u.get('output_tokens'))
+                s['cr'] += n(u.get('cache_read_input_tokens'))
+                s['cw'] += n(u.get('cache_creation_input_tokens'))
+                s['usd'] += usd
+                for k, v in parts.items(): s['usdParts'][k] += v
+                if agent_file or e.get('isSidechain'): s['agentCalls'] += 1; s['agentUsd'] += usd
+                day['c'] += 1
+            except Exception:
+                r['skipped'] += 1
     r['sessionId'] = r['sessionId'] or os.path.splitext(name)[0]
     r['cwd'] = cwds.most_common(1)[0][0] if cwds else None
     r['project'], r['worktree'] = split_worktree(r['cwd']) if r['cwd'] else (folder_project(path), None)
@@ -144,6 +154,9 @@ def load():
         if isinstance(j, dict) and j.get('v') == V and isinstance(j.get('sessions'), dict): return j['sessions']
     except (OSError, ValueError):
         pass
+    # an index we cannot use may still hold the only copy of pruned rollups
+    try: shutil.copyfile(index_path(), index_path() + '.bak')
+    except OSError: pass
     return {}
 
 
@@ -174,19 +187,20 @@ def tz():
 
 def run(rebuild=False):
     t0 = time.time()
-    old = {} if rebuild else load()
+    old = load()
     now = transcripts()
     keep, changed, skipped = {}, 0, 0
     for path, r in old.items():
         if path not in now: r['pruned'] = True; keep[path] = r
-        elif [r.get('size'), r.get('mtime')] == now[path]: keep[path] = r
-    for path, r in keep.items():
-        if path in now: r['pruned'] = False  # a transcript that came back
+        elif not rebuild and [r.get('size'), r.get('mtime')] == now[path]: r['pruned'] = False; keep[path] = r  # may have come back
     for path in sorted(now):
         if path in keep: continue
-        # one odd file (a usage that is not a dict, say) must not stop the run
+        # one odd file must not stop the run, and must not cost its earlier rollup
         try: r = parse(path)
-        except Exception: skipped += 1; continue
+        except Exception:
+            skipped += 1
+            if path in old: keep[path] = old[path]
+            continue
         r['size'], r['mtime'] = now[path]
         skipped += r['skipped']; changed += 1; keep[path] = r
     write({'v': V, 'builtAt': datetime.now().astimezone().isoformat(timespec='seconds'), 'tz': tz(), 'sessions': keep})

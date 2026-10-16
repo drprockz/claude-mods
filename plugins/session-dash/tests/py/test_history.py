@@ -116,6 +116,31 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(r['branches'], {'feat/x': 1})
         self.assertEqual(r['versions'], {'2.1.301': 1, '2.1.276': 1})
 
+    def test_malformed_entries_are_skipped_and_counted(self):
+        def bad(mid, **kw):
+            e = reply('b' + mid, '2026-10-16T06:30:06Z', mid)
+            e['message'].update(kw)
+            return e
+        r = self.parse(SID + '.jsonl', [
+            reply('a1', '2026-10-16T06:30:05Z', 'm1'),
+            bad('m2', usage='oops'),
+            bad('m3', content=7),
+            bad('m4', usage={'input_tokens': '7', 'output_tokens': 1}),
+            bad('m5', usage={'input_tokens': 1, 'cache_creation': 'x'}),
+        ])
+        self.assertEqual(r['models']['claude-opus-5']['calls'], 1)
+        self.assertEqual(r['skipped'], 4)
+
+    def test_prices_tolerate_odd_usage(self):
+        import prices
+        self.assertEqual(prices.cost_parts('x', 'claude-opus-5'), ({}, None))
+        usd, _ = prices.cost({'input_tokens': '7', 'output_tokens': 1_000_000, 'cache_creation': 'x'}, 'claude-opus-5')
+        self.assertAlmostEqual(usd, 25.0)
+
+    def test_agent_folder_is_the_parent_dir_only(self):
+        r = self.parse(os.path.join('subagents-notes', SID + '.jsonl'), [reply('a1', '2026-10-16T06:30:05Z', 'm1')])
+        self.assertFalse(r['agentFile'])
+
 
 class IndexTest(unittest.TestCase):
     def setUp(self):
@@ -171,7 +196,7 @@ class IndexTest(unittest.TestCase):
         write(bad, [reply('a1', '2026-10-16T06:30:05Z', 'm1', usage='not a dict')])
         rep = history.run()
         self.assertTrue(rep['ok'])
-        self.assertEqual((rep['changed'], rep['skipped']), (1, 1))
+        self.assertEqual((rep['changed'], rep['skipped']), (2, 1))  # the file parses; its bad line is skipped
 
     def test_rebuild_reparses_everything(self):
         history.run()
@@ -185,6 +210,51 @@ class IndexTest(unittest.TestCase):
     def test_cli_rejects_unknown_mode(self):
         p = subprocess.run([sys.executable, '-I', history.__file__, 'nope'], capture_output=True, text=True)
         self.assertEqual(p.returncode, 2)
+
+    def test_parse_failure_keeps_the_previous_rollup(self):
+        history.run()
+        with open(self.a, 'a') as fh:
+            fh.write(json.dumps(reply('a2', '2026-10-16T06:40:05Z', 'm2')) + '\n')
+        os.utime(self.a, (time.time() + 5, time.time() + 5))
+        real = history.parse
+        history.parse = lambda path: (_ for _ in ()).throw(RuntimeError('boom'))
+        try: rep = history.run()
+        finally: history.parse = real
+        self.assertEqual((rep['changed'], rep['skipped']), (0, 1))
+        self.assertEqual(self.index()['sessions'][self.a]['models']['claude-opus-5']['calls'], 1)
+
+    def test_rebuild_keeps_pruned_rollups(self):
+        history.run()
+        os.remove(self.a)
+        rep = history.run(rebuild=True)
+        r = self.index()['sessions'][self.a]
+        self.assertTrue(r['pruned'])
+        self.assertEqual(r['models']['claude-opus-5']['calls'], 1)
+
+    def test_unreadable_index_is_backed_up_first(self):
+        os.makedirs(os.path.dirname(history.index_path()), exist_ok=True)
+        with open(history.index_path(), 'w') as fh: fh.write('{broken')
+        history.run()
+        with open(history.index_path() + '.bak') as fh: self.assertEqual(fh.read(), '{broken')
+
+    def test_other_version_is_backed_up_first(self):
+        os.makedirs(os.path.dirname(history.index_path()), exist_ok=True)
+        with open(history.index_path(), 'w') as fh: fh.write('{"v": 0, "sessions": {}}')
+        history.run()
+        self.assertTrue(os.path.exists(history.index_path() + '.bak'))
+
+    def test_returning_transcript_is_no_longer_pruned(self):
+        history.run()
+        st = os.stat(self.a)
+        saved = open(self.a).read()
+        os.remove(self.a)
+        history.run()
+        self.assertTrue(self.index()['sessions'][self.a]['pruned'])
+        with open(self.a, 'w') as fh: fh.write(saved)
+        os.utime(self.a, (st.st_mtime, st.st_mtime))
+        rep = history.run()
+        self.assertEqual(rep['changed'], 0)
+        self.assertFalse(self.index()['sessions'][self.a]['pruned'])
 
 
 if __name__ == '__main__':

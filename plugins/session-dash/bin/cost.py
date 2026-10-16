@@ -6,32 +6,17 @@
   cost.py month-cache                      same, written atomically to
                                            ~/.claude/session-dash/month-cost.json
 
-Prices are list API rates ($/MTok); cache writes are 1.25x (5m) / 2x (1h)
-input, reads as listed. Each request is counted once (message id + request id).
+Prices are list API rates ($/MTok, see prices.py). Each request is counted once
+(message id + request id).
 On a subscription this is what the usage would cost at API prices, not a bill.
 """
 import json, sys, glob, os, re
 from datetime import datetime, timezone, timedelta
 IST = timezone(timedelta(hours=5, minutes=30))
-# $/MTok: input, output, cache read. Writes = 1.25x (5m) / 2x (1h) of input.
-PRICE = {
-  'opus-5-5': (4, 20, 0.20), 'opus-5': (5, 25, 0.50), 'opus-4-8': (5, 25, 0.50), 'opus-4-7': (5, 25, 0.50),
-  'opus-4-6': (5, 25, 0.50), 'sonnet-5-5': (2, 10, 0.20), 'sonnet-5': (2, 10, 0.20), 'sonnet-4-6': (3, 15, 0.30),
-  'haiku-5-5': (0.10, 0.50, 0.01), 'haiku-4-5': (1, 5, 0.10), 'fable-5-1': (10, 50, 0.25), 'fable-5': (10, 50, 1.0),
-}
-def price(model):
-    for k in sorted(PRICE, key=len, reverse=True):
-        if k in (model or ''): return PRICE[k]
-    return None
-def cost(u, model):
-    p = price(model)
-    if not p: return 0.0, model
-    i, o, r = p
-    cc = u.get('cache_creation') or {}
-    w5 = cc.get('ephemeral_5m_input_tokens'); w1 = cc.get('ephemeral_1h_input_tokens')
-    if w5 is None and w1 is None: w5, w1 = u.get('cache_creation_input_tokens', 0), 0
-    return (u.get('input_tokens', 0)*i + u.get('output_tokens', 0)*o + u.get('cache_read_input_tokens', 0)*r
-            + (w5 or 0)*i*1.25 + (w1 or 0)*i*2) / 1e6, None
+# The status line runs this with python3 -I, which leaves the script's own
+# folder off sys.path; prices.py sits beside it.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from prices import cost
 def scan(files, since=None):
     seen = set(); total = 0.0; by = {}; unpriced = set(); n = 0
     for f in files:

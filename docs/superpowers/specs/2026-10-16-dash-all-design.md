@@ -151,4 +151,4 @@ Plugin usage = calls attributable to it: skills named `<plugin>:<skill>` or list
 
 ## Rollout
 
-Bump session-dash to 0.3.0, update README (`/dash all`, the index file, what is and is not counted), push, `/plugin marketplace update drprockz-mods`.
+Bump session-dash to 0.4.0 (main took 0.3.0 for Windows support), update README (`/dash all`, the index file, what is and is not counted), push, `/plugin marketplace update drprockz-mods`.

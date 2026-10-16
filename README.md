@@ -20,7 +20,7 @@ Answer `y` to add the marketplace and pick the **user** scope.
 
 On each session start the mod copies `bin/` to `~/.claude/session-dash/bin/` when the copies differ, so updating the plugin updates the scripts. If no status line is set, the mod sets one. It never replaces a status line you already have; run `/dash statusline` to switch to this one. The previous settings are saved as `~/.claude/settings.json.bak-session-dash`.
 
-Needs `bash`, `jq`, `perl` and `python3`. Works on macOS and Linux; not supported on Windows.
+Needs `bash`, `awk` and `perl`. Works on macOS, Linux, and Windows under Git Bash (Claude Code runs the status line through Git Bash automatically when it's installed). `jq` is no longer required — the status line parses its JSON with `awk` instead, since `jq` isn't bundled with Git for Windows. `python3` is optional: it only powers the month-to-date cost cache, and that feature degrades quietly without it. The dashboard's own file bookkeeping (heartbeats, peer cleanup, the installer) shells out to `mkdir`/`rm`/`mv`/`chmod` by name, so on Windows they need Git Bash's `usr/bin` on `PATH` (true for most Git-for-Windows installs already used as the terminal's shell).
 
 ## Update
 

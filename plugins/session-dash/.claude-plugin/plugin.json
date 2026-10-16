@@ -1,6 +1,6 @@
 {
   "name": "session-dash",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Docked session dashboard (limits with pace, context, agents, other sessions) plus its status line and month-to-date cost.",
   "types": "./types/index.d.ts",
   "author": {

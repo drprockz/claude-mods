@@ -102,7 +102,7 @@ const dir = () => `${live.home}/.claude/session-dash/sessions`
 const writeBeat = async ($: EngineInterface, now: number) => {
   if (!live.home) return
   if (!isDirReady) {
-    await $.process.run(['/bin/mkdir', '-p', dir()])
+    await $.process.run(['mkdir', '-p', dir()])
     isDirReady = true
   }
   const id = await $.session.id()
@@ -151,7 +151,7 @@ const readPeers = async ($: EngineInterface, now: number) => {
   }
   peers.sort((a, b) => Number(b.isBusy) - Number(a.isBusy) || b.updatedAt - a.updatedAt)
   await update($, peersAtom, () => peers)
-  if (reap.length) swallow($.process.run(['/bin/rm', '-f', ...reap]))
+  if (reap.length) swallow($.process.run(['rm', '-f', ...reap]))
 }
 
 // The month's API-equivalent cost by model, kept fresh by the status line's
@@ -297,7 +297,7 @@ const refreshBreakdown = async ($: EngineInterface) => {
 
 const seed = async ($: EngineInterface, cwd: string) => {
   live.cwd = cwd
-  live.home = (await $.env.get('HOME')) ?? ''
+  live.home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? ''
   live.label = labelFor(await $.env.get('SESSION_DASH_LABEL'), cwd)
   try {
     const text = await $.fs.read(`${live.home}/.claude/plugins/installed_plugins.json`)
@@ -342,7 +342,7 @@ export const installBundle = async ($: EngineInterface, home: string) => {
       changed.push(`${dst}/${f}`)
     }
   }
-  if (changed.length) await run($, ['/bin/chmod', '755', ...changed])
+  if (changed.length) await run($, ['chmod', '755', ...changed])
 }
 
 // Points the user's status line at the bundled one: by itself when none is
@@ -362,8 +362,8 @@ export const ensureStatusLine = async ($: EngineInterface, home: string, force: 
   if (text) await $.fs.write(`${path}.bak-session-dash`, text)
   const tmp = `${path}.session-dash.tmp`
   await $.fs.write(tmp, next)
-  await run($, ['/bin/chmod', '600', tmp])
-  await run($, ['/bin/mv', '-f', tmp, path])
+  await run($, ['chmod', '600', tmp])
+  await run($, ['mv', '-f', tmp, path])
   return plan
 }
 
@@ -480,7 +480,7 @@ const collect = (on: On) => {
       await update($, groupsAtom, () => [])
     }
     if (live.home) {
-      swallow($.process.run(['/bin/rm', '-f', `${live.home}/.claude/session-dash/sessions/${e.sessionId}.json`]))
+      swallow($.process.run(['rm', '-f', `${live.home}/.claude/session-dash/sessions/${e.sessionId}.json`]))
     }
     return next(e)
   }).catch(($, e, next) => next(e))

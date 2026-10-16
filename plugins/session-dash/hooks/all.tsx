@@ -91,7 +91,8 @@ async function reindex($: EngineInterface) {
   if (hist.isRunning || !live.home) return
   hist.isRunning = true
   try {
-    const r = await $.process.run(['/usr/bin/env', 'python3', '-I', `${binDir(live.home)}/history.py`, 'index'], { timeoutMs: 120_000 })
+    // python3 by name, not by path: Windows (Git Bash) has no /usr/bin/env
+    const r = await $.process.run(['python3', '-I', `${binDir(live.home)}/history.py`, 'index'], { timeoutMs: 120_000 })
     const line = r.exitCode === 0 ? reportLine(r.stdout) : `index failed: ${lastLine(r.stderr || r.stdout) || `exit ${r.exitCode}`}`
     await update($, statusAtom, () => line)
   } catch (err) {

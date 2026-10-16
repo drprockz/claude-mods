@@ -38,7 +38,7 @@ const machine = (on: On, files: Map<string, string>, runs: string[][]) => {
     const argv = [...e.argv]
     runs.push(argv)
     const [cmd, , from = '', to = ''] = argv
-    if (cmd === '/bin/mv') {
+    if (cmd === 'mv') {
       files.set(to, files.get(from) ?? '')
       files.delete(from)
     }
@@ -72,7 +72,7 @@ describe('setup', () => {
     expect(s.model).toBe('opus')
     expect(s.statusLine).toEqual({ type: 'command', command: STATUS_LINE_COMMAND })
     expect(files.get(`${SETTINGS}.bak-session-dash`)).toBe('{"model":"opus"}')
-    expect(runs.some(r => r[0] === '/bin/chmod' && r[1] === '755')).toBe(true)
+    expect(runs.some(r => r[0] === 'chmod' && r[1] === '755')).toBe(true)
   })
 
   test('another status line is left alone until /dash statusline', async ($, on) => {
@@ -102,7 +102,7 @@ describe('setup', () => {
     machine(on, files, runs)
     await start($)
     await settle()
-    expect(runs.some(r => r[0] === '/bin/chmod' || r[0] === '/bin/mv')).toBe(false)
+    expect(runs.some(r => r[0] === 'chmod' || r[0] === 'mv')).toBe(false)
     expect(files.has(`${SETTINGS}.bak-session-dash`)).toBe(false)
   })
 })

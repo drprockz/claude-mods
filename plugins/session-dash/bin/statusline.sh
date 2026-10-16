@@ -42,15 +42,81 @@ epoch() { case "$1" in '') ;; *[!0-9]*) iso_epoch "$1";; *) printf '%s' "$1";; e
 vlen() { printf '%s' "$1" | perl -CS -0777 -ne 's/\e\[[0-9;]*m//g; print length($_) + (() = /[\p{EA=W}\p{EA=F}]/g)'; }
 pad() { local s=$1 w=$2 n; n=$(vlen "$s"); printf '%s%*s' "$s" $(( w>n ? w-n : 0 )) ''; }
 
-J=$(cat); jqr() { printf '%s' "$J" | jq -r "$1 // \"\"" 2>/dev/null; }
-MODEL=$(jqr '.model.display_name'); MODEL=${MODEL:-Claude}; MODEL=${MODEL/ (1M context)/}
-EFFORT=$(jqr '.effort.level')
-CTX_PCT=$(jqr '.context_window.used_percentage'); CTX_PCT=${CTX_PCT:-0}
-CTX_SIZE=$(jqr '.context_window.context_window_size'); CTX_SIZE=${CTX_SIZE:-1000000}
-CTX_NOW=$(printf '%s' "$J" | jq -r '.context_window.current_usage | (.input_tokens+.output_tokens+.cache_creation_input_tokens+.cache_read_input_tokens) // 0' 2>/dev/null)
-H_PCT=$(jqr '.rate_limits.five_hour.used_percentage'); H_RST=$(jqr '.rate_limits.five_hour.resets_at')
-D_PCT=$(jqr '.rate_limits.seven_day.used_percentage'); D_RST=$(jqr '.rate_limits.seven_day.resets_at')
-COST=$(jqr '.cost.total_cost_usd'); TRANSCRIPT=$(jqr '.transcript_path')
+J=$(cat)
+
+# Field reader for the status line JSON, done in awk (already a dependency,
+# see pills()/fmt_tok() below) instead of jq so a bare Windows/Git-Bash
+# machine without jq installed still gets a working status line. Each value
+# comes back as a single-quoted, eval-safe shell token.
+json_fields() {
+  awk '
+    function find_obj(json, key,    i, n, c, instr, esc, depth, start, pat) {
+      pat = "\"" key "\"[ \t\r\n]*:[ \t\r\n]*\\{"
+      if (!match(json, pat)) return ""
+      start = RSTART + RLENGTH - 1
+      depth = 0; instr = 0; esc = 0; n = length(json)
+      for (i = start; i <= n; i++) {
+        c = substr(json, i, 1)
+        if (esc) { esc = 0; continue }
+        if (c == "\\") { esc = 1; continue }
+        if (c == "\"") { instr = !instr; continue }
+        if (instr) continue
+        if (c == "{") depth++
+        else if (c == "}") { depth--; if (depth == 0) return substr(json, start, i - start + 1) }
+      }
+      return ""
+    }
+    function find_str(json, key,    pat, s) {
+      pat = "\"" key "\"[ \t\r\n]*:[ \t\r\n]*\"([^\"\\\\]|\\\\.)*\""
+      if (!match(json, pat)) return ""
+      s = substr(json, RSTART, RLENGTH)
+      sub(/^[^:]*:[ \t\r\n]*"/, "", s); sub(/"$/, "", s)
+      gsub(/\\"/, "\"", s)
+      return s
+    }
+    function find_num(json, key,    pat, s) {
+      pat = "\"" key "\"[ \t\r\n]*:[ \t\r\n]*(-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?|null)"
+      if (!match(json, pat)) return ""
+      s = substr(json, RSTART, RLENGTH)
+      sub(/^[^:]*:[ \t\r\n]*/, "", s)
+      return s == "null" ? "" : s
+    }
+    function shq(v,    out, i, n, c) {
+      out = "\x27"
+      n = length(v)
+      for (i = 1; i <= n; i++) {
+        c = substr(v, i, 1)
+        out = out (c == "\x27" ? "\x27\\\x27\x27" : c)
+      }
+      return out "\x27"
+    }
+    {
+      j = $0
+      cw = find_obj(j, "context_window"); cu = find_obj(cw, "current_usage")
+      rl = find_obj(j, "rate_limits"); fh = find_obj(rl, "five_hour"); sd = find_obj(rl, "seven_day")
+      md = find_obj(j, "model"); ef = find_obj(j, "effort"); co = find_obj(j, "cost")
+      printf "MODEL=%s\n", shq(find_str(md, "display_name"))
+      printf "EFFORT=%s\n", shq(find_str(ef, "level"))
+      printf "CTX_PCT=%s\n", shq(find_num(cw, "used_percentage"))
+      printf "CTX_SIZE=%s\n", shq(find_num(cw, "context_window_size"))
+      printf "CTX_IN=%s\n", shq(find_num(cu, "input_tokens"))
+      printf "CTX_OUT=%s\n", shq(find_num(cu, "output_tokens"))
+      printf "CTX_CC=%s\n", shq(find_num(cu, "cache_creation_input_tokens"))
+      printf "CTX_CR=%s\n", shq(find_num(cu, "cache_read_input_tokens"))
+      printf "H_PCT=%s\n", shq(find_num(fh, "used_percentage"))
+      printf "H_RST=%s\n", shq(find_str(fh, "resets_at"))
+      printf "D_PCT=%s\n", shq(find_num(sd, "used_percentage"))
+      printf "D_RST=%s\n", shq(find_str(sd, "resets_at"))
+      printf "COST=%s\n", shq(find_num(co, "total_cost_usd"))
+      printf "TRANSCRIPT=%s\n", shq(find_str(j, "transcript_path"))
+    }
+  ' <<<"$J"
+}
+eval "$(json_fields)"
+MODEL=${MODEL:-Claude}; MODEL=${MODEL/ (1M context)/}
+CTX_PCT=${CTX_PCT:-0}
+CTX_SIZE=${CTX_SIZE:-1000000}
+CTX_NOW=$(( ${CTX_IN:-0} + ${CTX_OUT:-0} + ${CTX_CC:-0} + ${CTX_CR:-0} ))
 now=$(date +%s)
 
 # --- CRUZ quota cache -------------------------------------------------------
@@ -65,17 +131,13 @@ now=$(date +%s)
 # cache untouched without affecting the status line.
 {
   _cq="$HOME/.claude/cruz-rate-limits.json"
+  _esc() { local s=${1//\\/\\\\}; printf '%s' "${s//\"/\\\"}"; }
   if _tmp=$(mktemp "${_cq}.XXXXXX" 2>/dev/null); then
-    if jq -n \
-        --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --arg hp "$H_PCT" --arg hr "$H_RST" \
-        --arg dp "$D_PCT" --arg dr "$D_RST" \
-        '{updated_at:$ts}
-         + (($hp|try tonumber catch null) as $h
-            | if $h==null then {} else {five_hour:{used_percentage:$h,resets_at:$hr}} end)
-         + (($dp|try tonumber catch null) as $d
-            | if $d==null then {} else {seven_day:{used_percentage:$d,resets_at:$dr}} end)' \
-        >"$_tmp" 2>/dev/null; then
+    _body='{"updated_at":"'"$(_esc "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"'"'
+    case "$H_PCT" in ''|*[!0-9.]*) ;; *) _body+=',"five_hour":{"used_percentage":'"$H_PCT"',"resets_at":"'"$(_esc "$H_RST")"'"}' ;; esac
+    case "$D_PCT" in ''|*[!0-9.]*) ;; *) _body+=',"seven_day":{"used_percentage":'"$D_PCT"',"resets_at":"'"$(_esc "$D_RST")"'"}' ;; esac
+    _body+='}'
+    if printf '%s' "$_body" >"$_tmp" 2>/dev/null; then
       mv -f "$_tmp" "$_cq" 2>/dev/null || rm -f "$_tmp" 2>/dev/null
     else
       rm -f "$_tmp" 2>/dev/null
@@ -94,12 +156,23 @@ fi
 MC="$HOME/.claude/session-dash/month-cost.json"; MLOCK="$HOME/.claude/session-dash/.month-cost.lock"
 MONTH_NOW=$(TZ=Asia/Kolkata date +%Y-%m); MONTH_TXT=''
 if [ -f "$MC" ]; then
-  read -r m_month m_usd < <(jq -r '"\(.month) \(.usd)"' "$MC" 2>/dev/null)
+  read -r m_month m_usd < <(awk '
+    function find_str(json, key,    pat, s) {
+      pat = "\"" key "\"[ \t\r\n]*:[ \t\r\n]*\"([^\"\\\\]|\\\\.)*\""
+      if (!match(json, pat)) return ""
+      s = substr(json, RSTART, RLENGTH); sub(/^[^:]*:[ \t\r\n]*"/, "", s); sub(/"$/, "", s); return s }
+    function find_num(json, key,    pat, s) {
+      pat = "\"" key "\"[ \t\r\n]*:[ \t\r\n]*(-?[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?|null)"
+      if (!match(json, pat)) return ""
+      s = substr(json, RSTART, RLENGTH); sub(/^[^:]*:[ \t\r\n]*/, "", s); return s == "null" ? "" : s }
+    { j = $0; printf "%s %s\n", find_str(j, "month"), find_num(j, "usd") }
+  ' "$MC" 2>/dev/null)
   [ "$m_month" = "$MONTH_NOW" ] && MONTH_TXT=$(awk -v u="$m_usd" 'BEGIN{ s=sprintf("%.0f",u); o=""; while(length(s)>3){ o=","substr(s,length(s)-2) o; s=substr(s,1,length(s)-3) } printf "$%s%s", s, o }')
   m_age=$(( now - $(mtime "$MC" || echo 0) ))
 else m_age=999999; fi
 [ -d "$MLOCK" ] && [ $(( now - $(mtime "$MLOCK" || echo 0) )) -gt 300 ] && rmdir "$MLOCK" 2>/dev/null
-if { [ "$m_age" -gt 600 ] || [ -z "$MONTH_TXT" ]; } && [ -x "$HOME/.claude/session-dash/bin/cost.py" ] && mkdir "$MLOCK" 2>/dev/null; then
+if { [ "$m_age" -gt 600 ] || [ -z "$MONTH_TXT" ]; } && [ -x "$HOME/.claude/session-dash/bin/cost.py" ] \
+    && python3 -c '' >/dev/null 2>&1 && mkdir "$MLOCK" 2>/dev/null; then
   ( python3 -I "$HOME/.claude/session-dash/bin/cost.py" month-cache; rmdir "$MLOCK" ) >/dev/null 2>&1 &
 fi
 MONTH_LBL=$(TZ=Asia/Kolkata date +%b)

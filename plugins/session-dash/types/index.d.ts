@@ -82,6 +82,11 @@ declare module 'claude-code' {
       autoOpened: boolean
       month: MonthCost | null
       efforts: Record<string, string>
+      allTab: 'overview' | 'models' | 'projects' | 'tools' | 'plugins' | 'timeline'
+      allRange: '7d' | '30d' | 'all'
+      allProject: string | null
+      allStatus: string
+      allRev: number
     }
   }
 }

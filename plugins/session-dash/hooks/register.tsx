@@ -9,6 +9,7 @@ import { BUNDLE, binDir, planStatusLine, withStatusLine } from './lib/install'
 import type { StatusLinePlan } from './lib/install'
 import { addSample } from './lib/pace'
 import { heartbeat, labelFor, parsePeer, REAP_MS, tildify } from './lib/peers'
+import { registerAll, toggleAll } from './all'
 import { live, swallow } from './state'
 import type { DashData } from './view/dash'
 import { Dash, Strip } from './view/dash'
@@ -385,7 +386,7 @@ const collect = (on: On) => {
     if (e.isInteractive) {
       swallow(seed($, e.cwd).then(() => setup($)))
       startClocks($)
-      swallow($.command.register({ name: 'dash', description: 'Toggle the session dashboard sidebar; /dash statusline installs its status line' }))
+      swallow($.command.register({ name: 'dash', description: 'Toggle the session dashboard sidebar; /dash all shows all-time usage; /dash statusline installs its status line' }))
     }
     return r
   }).catch(($, e, next) => next(e))
@@ -528,6 +529,7 @@ const compactNow = async ($: EngineInterface) => {
 
 const views = (on: On) => {
   on('command.run', { command: 'dash' }, async ($, e) => {
+    if (e.args.trim() === 'all') return toggleAll($)
     if (e.args.trim() === 'statusline') {
       if (!live.home) return { text: 'The session has not started yet.' }
       await installBundle($, live.home)
@@ -581,4 +583,5 @@ const views = (on: On) => {
 export const register: Register = on => {
   collect(on)
   views(on)
+  registerAll(on)
 }

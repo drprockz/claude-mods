@@ -54,7 +54,7 @@ The price table moves from `cost.py` into `bin/prices.py`, imported by both (eac
 
 ```
 history.py index     update the index incrementally, print {"ok":true,"files":N,"changed":M,"skipped":K,"ms":T}
-history.py rebuild   drop the index and build it from scratch
+history.py rebuild   re-parse every transcript on disk; rollups of deleted transcripts are kept
 ```
 
 **One rollup per transcript file**, keyed by absolute path with `{size, mtime}`. The aggregator groups rollups by `sessionId`; the indexer never merges files. Unchanged files are skipped; changed/new files are re-parsed whole. Files that no longer exist keep their rollup with `"pruned": true`.
@@ -67,7 +67,7 @@ history.py rebuild   drop the index and build it from scratch
 
 ```json
 {
-  "sessionId": "…", "file": "…", "size": 0, "mtime": 0, "pruned": false,
+  "sessionId": "…", "size": 0, "mtime": 0, "pruned": false,
   "cwd": "/home/u/STS/shooter-management-backend/.worktrees/feat-x",
   "project": "/home/u/STS/shooter-management-backend",
   "worktree": "feat-x",
@@ -87,7 +87,7 @@ history.py rebuild   drop the index and build it from scratch
 - `agentCalls` / `agentUsd`: the part of a model's calls with `isSidechain: true` or coming from a `subagents/` file.
 - Tools from `tool_use` blocks on assistant messages. `Skill` → `skills[input.skill]`; `Agent`/`Task` → `agents[input.subagent_type or "general-purpose"]`; `mcp__<server>__<tool>` → `mcp[server][tool]` (and counted under `tools` as `mcp`).
 
-**Index file** `~/.claude/session-dash/history-index.json`: `{"v": 1, "builtAt": "ISO", "tz": "+05:30", "sessions": {<file path>: rollup}}`, written atomically (tmp + `os.replace`) like `month-cost.json`. A version mismatch or unreadable JSON means rebuild.
+**Index file** `~/.claude/session-dash/history-index.json`: `{"v": 1, "builtAt": "ISO", "tz": "+05:30", "sessions": {<file path>: rollup}}`, written atomically (tmp + `os.replace`) like `month-cost.json`. An unreadable index or one with another `v` is first copied to `history-index.json.bak`, then rebuilt (its pruned rollups are lost only in that case, and the backup keeps them). Within a file, a malformed line is skipped and counted; a file that still fails to parse keeps its previous rollup.
 
 **Errors:** unreadable files and bad JSON lines are skipped and counted in `skipped`; the run never fails because of one file. Exit code ≠ 0 only when the index cannot be written.
 

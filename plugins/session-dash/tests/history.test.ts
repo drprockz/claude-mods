@@ -10,6 +10,7 @@ import {
   splitWorktree,
 } from '../hooks/lib/history-data'
 import { aggregate } from '../hooks/lib/history'
+import { insights } from '../hooks/lib/insights'
 import type { Extras, HistoryIndex, ModelRoll, Rollup } from '../hooks/lib/history-data'
 
 describe('history-data', () => {
@@ -274,5 +275,40 @@ describe('aggregate', () => {
     expect(t.biggest[0]).toEqual({ day: '2026-07-03', m: 100 })
     expect(t.longest?.messages).toBe(906)
     expect(t.firstSeen).toBe('2026-02-01')
+  })
+})
+
+describe('insights', () => {
+  test('each rule fires above its threshold', () => {
+    const i = insights(all())
+    expect(i.overview).toBe('claude-opus-5 is 98% of est. spend')
+    expect(i.models).toBe('Re-reading cached context is 100% of claude-opus-5’s cost. Shorter sessions or /compact cut it most.')
+    expect(i.tools).toBe('0 Edit calls and 900 Bash calls: file changes are going through Bash.')
+    expect(i.timeline).toBe('90% of sessions start between 12:00 and 13:00')
+    expect(i.projects).toBe('/home/me/STS/app is 92% of est. spend')
+  })
+
+  test('quiet when nothing crosses a threshold', () => {
+    const d = all()
+    const calm = {
+      ...d,
+      models: { ...d.models, rows: [], split: null },
+      tools: { ...d.tools, tools: [{ name: 'Read', n: 5 }, { name: 'Edit', n: 5 }] },
+      plugins: { ...d.plugins, plugins: [] },
+      projects: [],
+      timeline: { ...d.timeline, hours: Array<number>(24).fill(1) },
+    }
+    expect(insights(calm)).toEqual({})
+  })
+
+  test('one tool over 60% when Edit is in use', () => {
+    const d = all()
+    expect(insights({ ...d, tools: { ...d.tools, tools: [{ name: 'Read', n: 70 }, { name: 'Edit', n: 30 }] } }).tools).toBe('Read is 70% of tool calls')
+  })
+
+  test('idle plugins', () => {
+    const d = all()
+    const idle = Array.from({ length: 5 }, (_, k) => ({ name: `p${k}`, marketplace: 'm', status: 'idle' as const, uses: 0 }))
+    expect(insights({ ...d, plugins: { ...d.plugins, plugins: idle } }).plugins).toBe('5 of 5 plugins have no recorded use.')
   })
 })

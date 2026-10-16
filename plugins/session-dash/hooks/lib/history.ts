@@ -97,6 +97,8 @@ const tzMinutes = (tz: string) => {
   return m ? (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0
 }
 const dayOf = (ms: number, tzMin: number) => new Date(ms + tzMin * 60_000).toISOString().slice(0, 10)
+// the index's own today, so a caller can tell when a cached result went stale
+export const todayOf = (index: HistoryIndex, now: number) => dayOf(now, tzMinutes(index.tz))
 const addDays = (day: string, k: number) => new Date(Date.parse(`${day}T00:00:00Z`) + k * DAY).toISOString().slice(0, 10)
 const between = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY)
 

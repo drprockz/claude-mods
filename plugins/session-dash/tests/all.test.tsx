@@ -142,6 +142,46 @@ describe('/dash all', () => {
     await ui.unmount()
   })
 
+  test('before the session has started it says so instead of opening', async ($, on) => {
+    const runs: string[][] = []
+    machine(on, new Map(), runs)
+    const r = await openAll($)
+    expect(r.text).toBe('The session has not started yet.')
+    expect(runs.some(a => a.join(' ').includes('history.py'))).toBe(false)
+  })
+
+  test('a failed reindex over an existing index shows the whole error on its own line', async ($, on) => {
+    const index = JSON.stringify({ v: 1, builtAt: '', tz: '+05:30', sessions: { f: ROLL } })
+    machine(on, new Map([[`${C}/session-dash/history-index.json`, index]]), [], 1)
+    await start($)
+    await openAll($)
+    const ui = await $.ui.mount(PANE)
+    expect(await ui.find({ type: 'Text', text: 'API CALLS' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^index failed: Traceback: boom$/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('every tab draws at 160 and 80 columns', async ($, on) => {
+    machine(on, new Map(), [])
+    await start($)
+    await openAll($)
+    for (const bodyColumns of [160, 80]) {
+      const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns } })
+      for (const [key, text] of [
+        ['tab-overview', /^API CALLS$/],
+        ['tab-models', /MAIN THREAD VS SUBAGENTS/],
+        ['tab-projects', /PROMPTS/],
+        ['tab-tools', /TOOL CALLS/],
+        ['tab-plugins', /MCP SERVERS/],
+        ['tab-timeline', /CLAUDE CODE VERSIONS/],
+      ] as const) {
+        await ui.press({ key })
+        expect(await ui.find({ type: 'Text', text })).toBeDefined()
+      }
+      await ui.unmount()
+    }
+  })
+
   test('plain /dash still toggles the sidebar', async ($, on) => {
     machine(on, new Map(), [])
     await start($)

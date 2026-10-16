@@ -116,7 +116,7 @@ const Overview = ({ E, w, d }: { E: E; w: number; d: HistoryDash }) => {
         <Label E={E} text="top projects" />
         {d.projects.slice(0, 4).map(p => (
           <Line E={E}>
-            <Text>{cell(short('', p.project.split('/').slice(-1)[0] ?? p.project), Math.floor(w * 0.5))}</Text>
+            <Text>{cell(p.project.split('/').slice(-1)[0] ?? p.project, Math.floor(w * 0.5))}</Text>
             <Text color={L.muted}>{cell(`${p.sessions} sess`, 10, 'right')}</Text>
             <Text color={L.money}>{cell(est(p.usd), 10, 'right')}</Text>
           </Line>
@@ -400,7 +400,7 @@ const Timeline = ({ E, w, d }: { E: E; w: number; d: HistoryDash }) => {
           <Line E={E}>
             <Text color={v.current ? L.used : v.stale ? L.warn : L.ink}>{cell(v.v, 10)}</Text>
             <Text color={L.muted}>{cell(`${v.first.slice(5)} → ${v.current ? 'now' : v.last.slice(5)}`, 18)}</Text>
-            <Text color={v.current ? L.used : L.warn}>{v.current ? 'current' : v.stale ? 'old build still running' : ''}</Text>
+            <Text color={v.current ? L.used : L.warn}>{v.current ? 'current' : v.stale ? 'old build seen after update' : ''}</Text>
           </Line>
         ))}
         <Label E={E} text="biggest days" />
@@ -441,6 +441,11 @@ export const History = (p: HistoryProps & { home: string }) => {
       {insight ? (
         <Box marginTop={1}>
           <Text color={L.money} wrap="wrap">{`▲ ${insight}`}</Text>
+        </Box>
+      ) : null}
+      {d && status.startsWith('index failed') ? (
+        <Box marginTop={1}>
+          <Text color={L.warn} wrap="wrap">{status}</Text>
         </Box>
       ) : null}
       <Box marginTop={1}>

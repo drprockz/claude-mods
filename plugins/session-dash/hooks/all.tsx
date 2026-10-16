@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import { aggregate } from './lib/history'
-import type { Range, TabId } from './lib/history'
+import { aggregate, todayOf } from './lib/history'
+import type { HistoryDash, Range, TabId } from './lib/history'
 import type { Extras, HistoryIndex, PluginInfo } from './lib/history-data'
 import { parseIndex, parsePrompts, parseStats, pickPlugins, pluginInfo, reportLine } from './lib/history-data'
 import { insights } from './lib/insights'
@@ -28,6 +28,8 @@ const hist = {
   index: null as HistoryIndex | null,
   extras: null as Extras | null,
   isRunning: false,
+  // the last aggregate: a render per keypress need not recount the index
+  memo: null as { key: string; d: HistoryDash; insights: ReturnType<typeof insights> } | null,
 }
 
 // Every helper given $ is a function declaration: past an import the engine
@@ -36,12 +38,12 @@ function text($: EngineInterface, path: string) {
   return $.fs.read(path).catch(() => '')
 }
 
-// FsEntry.kind is 'file' | 'dir' | 'other'; a symlinked skill folder is
-// 'other', so folders are anything that is not a plain file
+// FsEntry.kind is 'file' | 'dir' | 'other', and a symlink is 'other': so a
+// folder is anything not a plain file, a file anything not a folder
 async function names($: EngineInterface, path: string, kind: 'file' | 'dir' | 'any' = 'any') {
   try {
     return (await $.fs.list(path))
-      .filter(e => kind === 'any' || (kind === 'file' ? e.kind === 'file' : e.kind !== 'file'))
+      .filter(e => kind === 'any' || (kind === 'file' ? e.kind !== 'dir' : e.kind !== 'file'))
       .map(e => e.name)
   } catch {
     return []
@@ -72,6 +74,7 @@ async function readPlugins($: EngineInterface, c: string): Promise<PluginInfo[]>
 async function load($: EngineInterface) {
   const c = `${live.home}/.claude`
   hist.index = parseIndex(await text($, `${c}/session-dash/history-index.json`))
+  hist.memo = null
   hist.extras = {
     home: live.home,
     stats: parseStats(await text($, `${c}/stats-cache.json`)),
@@ -106,9 +109,11 @@ export async function toggleAll($: EngineInterface): Promise<{ text: string }> {
     await $.ui.close({ id: ALL_PANE })
     return { text: 'Usage closed.' }
   }
+  // with no home there is no index to build: the pane would wait forever
+  if (!live.home) return { text: 'The session has not started yet.' }
   // a reload or another home (tests) starts from disk again
-  if (hist.home !== live.home) Object.assign(hist, { home: live.home, index: null, extras: null, isRunning: false })
-  if (!hist.index && live.home) await load($)
+  if (hist.home !== live.home) Object.assign(hist, { home: live.home, index: null, extras: null, isRunning: false, memo: null })
+  if (!hist.index) await load($)
   swallow(reindex($))
   const opened = await $.ui.open({ id: ALL_PANE, title: 'Usage', columns: 110, focus: true, closeOnEscape: true })
   return { text: opened.isPlaced ? 'Usage open.' : 'Usage waits for a wider terminal.' }
@@ -120,12 +125,21 @@ export function registerAll(on: On) {
   on('ui.render', { component: 'Pane', requestId: ALL_PANE }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
     const El = $.ui.resolve(e)
-    await read($, revAtom)
+    const rev = await read($, revAtom)
     const tab = (await read($, tabAtom)) as TabId
     const range = (await read($, rangeAtom)) as Range
     const project = await read($, projectAtom)
     const status = await read($, statusAtom)
-    const d = hist.index && hist.extras ? aggregate(hist.index, hist.extras, { range, project, now: await $.clock.now() }) : null
+    const now = await $.clock.now()
+    if (hist.index && hist.extras) {
+      const key = JSON.stringify([rev, range, project, todayOf(hist.index, now)])
+      if (hist.memo?.key !== key) {
+        const d = aggregate(hist.index, hist.extras, { range, project, now })
+        hist.memo = { key, d, insights: insights(d) }
+      }
+    }
+    const memo = hist.index && hist.extras ? hist.memo : null
+    const d = memo?.d ?? null
     return (
       <History
         E={El}
@@ -133,7 +147,7 @@ export function registerAll(on: On) {
         d={d}
         tab={tab}
         status={status}
-        insight={d ? insights(d)[tab] : undefined}
+        insight={memo?.insights[tab]}
         home={live.home}
         act={{
           tab: id => swallow(update($, tabAtom, () => id)),

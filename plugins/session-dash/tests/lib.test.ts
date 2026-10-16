@@ -2,10 +2,10 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import * as A from '../hooks/lib/agents'
 import { groupOf, groups, segments } from '../hooks/lib/breakdown'
-import { dur, prettyModel, stamp, tok, truncMid, usd, usdWhole } from '../hooks/lib/format'
+import { dur, hbar, num, prettyModel, stamp, tok, truncMid, usd, usdWhole } from '../hooks/lib/format'
 import { effortDots, groupPills, pills } from '../hooks/lib/meter'
 import { addSample, evenFraction, paceOf } from '../hooks/lib/pace'
-import { C, heat, levelColor } from '../hooks/lib/palette'
+import { C, heat, LEDGER, levelColor } from '../hooks/lib/palette'
 import { agentColor, DESK_H, DESK_W, deskPixels, toCells } from '../hooks/lib/office'
 import { heartbeat, labelFor, parsePeer, tildify } from '../hooks/lib/peers'
 import { DEFAULT_COLOR, rasterCells, resample, sparkGlyph } from '../hooks/lib/spark'
@@ -301,5 +301,23 @@ describe('office', () => {
     const cells = toCells([['#FF0000', undefined], ['#00FF00', '#0000FF']])
     expect(cells[0]).toEqual({ ch: '▀', fg: 0xff0000, bg: 0x00ff00 })
     expect(cells[1]).toEqual({ ch: '▄', fg: 0x0000ff, bg: DEFAULT_COLOR })
+  })
+})
+
+describe('ledger helpers', () => {
+  test('hbar fills with eighth blocks and never overflows', () => {
+    expect(hbar(1, 4)).toBe('████')
+    expect(hbar(0, 4)).toBe('    ')
+    expect(hbar(0.5, 4)).toBe('██  ')
+    expect(hbar(0.3, 4)).toBe('█▎  ') // 1.2 cells: one full, 1.6 eighths rounds to 2
+    expect(hbar(2, 3)).toBe('███')
+    expect(hbar(Number.NaN, 2)).toBe('  ')
+  })
+  test('num groups thousands', () => {
+    expect(num(1925)).toBe('1,925')
+    expect(num(12)).toBe('12')
+  })
+  test('ledger reserves amber for money', () => {
+    expect(LEDGER.money).toBe('#F5A524')
   })
 })

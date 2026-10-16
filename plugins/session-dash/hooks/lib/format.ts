@@ -75,3 +75,17 @@ export const stamp = (ms: number, now: number): string => {
   if (day(ms) === day(now + DAY_MS)) return `tomorrow ${time}`
   return `${DAYS[ist.getUTCDay()]} ${ist.getUTCDate()} ${MONTHS[ist.getUTCMonth()]}, ${time}`
 }
+
+const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
+
+// A bar `w` cells wide filled to `frac`, in eighth-cell steps, padded so
+// columns after it line up.
+export const hbar = (frac: number, w: number): string => {
+  const f = Math.min(1, Math.max(0, Number.isFinite(frac) ? frac : 0))
+  const eighths = Math.round(f * w * 8)
+  const full = Math.floor(eighths / 8)
+  const s = '█'.repeat(full) + (full < w ? EIGHTHS[eighths % 8]! : '')
+  return s.padEnd(w)
+}
+
+export const num = (n: number): string => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')

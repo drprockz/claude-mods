@@ -56,3 +56,19 @@ export const GROUP_COLOR = {
 } as const
 
 export const hexToInt = (h: string): number => parseInt(h.slice(1), 16)
+
+// /dash all ("Ledger"): one ground, colour only where it means something.
+// Amber is money and focus, blue counts, teal skills and "used".
+export const LEDGER = {
+  ink: '#E4E7EC',
+  muted: '#9AA3B2',
+  line: '#2A2F3A',
+  track: '#1F242D',
+  money: '#F5A524',
+  count: '#5EA6FF',
+  used: '#3DD6B0',
+  agent: '#B392F0',
+  warn: '#F47C8A',
+  idle: '#4A5160',
+  heat: ['#1F242D', '#1E4A7A', '#2F78C4', '#5EA6FF', '#F5A524'],
+} as const

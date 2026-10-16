@@ -261,6 +261,12 @@ describe('aggregate', () => {
     expect(p.mcp.find(s => s.server === 'plugin_playwright_playwright')).toMatchObject({ kind: 'plugin', calls: 0 })
   })
 
+  test('a plugin with a skill and a command of one name counts each use once', () => {
+    const plugins = EXTRAS.plugins.map(p => (p.name === 'afk' ? { ...p, commands: ['afk'] } : p))
+    const p = aggregate(INDEX, { ...EXTRAS, plugins }, { range: 'all', project: null, now: NOW }).plugins
+    expect(p.plugins.find(x => x.name === 'afk')).toMatchObject({ status: 'used', uses: 1 })
+  })
+
   test('timeline: streaks, gaps, hours, versions', () => {
     const t = all().timeline
     expect(t.active).toBe(5)

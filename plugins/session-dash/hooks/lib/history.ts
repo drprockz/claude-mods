@@ -272,7 +272,8 @@ export const aggregate = (index: HistoryIndex, x: Extras, o: Opts): HistoryDash 
   const plugins = x.plugins
     .map(p => {
       let uses = 0
-      for (const s of [...p.skills, ...p.commands]) uses += used(`${p.name}:${s}`) + used(s)
+      // a skill and a command of one name are one thing to count, not two
+      for (const s of new Set([...p.skills, ...p.commands])) uses += used(`${p.name}:${s}`) + used(s)
       for (const a of p.agents) uses += agents[`${p.name}:${a}`] ?? 0
       for (const s of p.mcp) uses += Object.values(mcpCalls[`plugin_${p.name}_${s}`] ?? {}).reduce((a, n) => a + n, 0)
       const status: 'used' | 'background' | 'idle' = uses > 0 ? 'used' : p.background ? 'background' : 'idle'

@@ -112,8 +112,9 @@ Plugin usage = calls attributable to it: skills named `<plugin>:<skill>` or list
 
 - **Day series rule** (messages per day, calendar, active days, streaks, hour chart): with no project filter, stats-cache is used for dates ≤ `lastComputedDate` and rollups for later dates (stats-cache trails by about a day, so today always comes from rollups); hours likewise from `hourCounts` plus the `startHour` of sessions starting after `lastComputedDate`. With a project filter only rollups are used, and the Overview notes "retained transcripts only". Every day series is in **messages**; API calls appear only as a KPI and in Models.
 - Range filters on `days` keys of rollups and on stats-cache dates. A file counts if any of its days falls in range; its per-day messages/calls are filtered exactly, model/tool/skill counts are counted whole for that file (rollups do not split them by day; good enough for 7d/30d).
+- stats-cache's `hourCounts` and `longestSession` have no dates, so they are used only for the `all` range; 7d/30d build the hour chart from rollups and leave the longest session out. Archived models are always all-time.
 - `project` filter limits every tab to that project's rollups and prompts.
-- "First seen" = the earliest of stats-cache `firstSessionDate`, any rollup `start`, and the first `history.jsonl` prompt.
+- "First seen" = the earliest of stats-cache `firstSessionDate`, any rollup `startDay`, and the first `history.jsonl` prompt.
 - Produces one object per tab, matching the boards:
   - **Overview:** KPIs (sessions, messages, API calls, est. $, models live/archived, projects with/without transcripts), messages per active day, model mix by $, top 4 projects, top 4 tools, top 3 skills, insights.
   - **Models:** per model calls, in, out, cache read, cache write, hit % = `cr / (cr + cw + in)`, $/call, $; call share; archived rows; cost split (input/output/cache read/cache write) for the top model; main vs agent split.
@@ -121,7 +122,7 @@ Plugin usage = calls attributable to it: skills named `<plugin>:<skill>` or list
   - **Tools & skills:** tool counts (log-scaled bars), skills with source (`built-in` / `yours` / plugin name), installed-but-never-invoked skills, subagent types.
   - **Plugins & MCP:** every installed plugin with status and usage; MCP servers seen in calls or configured, with per-tool counts for the selected server.
   - **Timeline:** active days, current/longest streak, longest session, average gap, calendar (16 weeks), sessions by hour, Claude Code versions (first/last seen; the newest is "current"; a version still seen after a newer one is flagged), biggest days.
-- **Insights:** at most 1 per tab, rule-based, each with a threshold so nothing is shown when it is not true: top model ≥ 60% of $; cache read ≥ 50% of top model $; one tool ≥ 60% of calls; `Edit` = 0 while `Bash` > 100; idle plugins ≥ 5; ≥ 50% of sessions in one hour.
+- **Insights:** at most 1 per tab, rule-based, each with a threshold so nothing is shown when it is not true: top model ≥ 60% of $; cache read ≥ 50% of top model $; one tool ≥ 60% of calls; `Edit` = 0 while `Bash` > 100; idle plugins ≥ 5; ≥ 50% of sessions in one hour; top project ≥ 60% of $.
 
 ## View: `/dash all`
 

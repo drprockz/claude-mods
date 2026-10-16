@@ -136,3 +136,68 @@ def parse(path):
         s['usd'] = round(s['usd'], 6); s['agentUsd'] = round(s['agentUsd'], 6)
         s['usdParts'] = {k: round(v, 6) for k, v in s['usdParts'].items()}
     return r
+
+
+def load():
+    try:
+        with open(index_path()) as fh: j = json.load(fh)
+        if isinstance(j, dict) and j.get('v') == V and isinstance(j.get('sessions'), dict): return j['sessions']
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def transcripts():
+    out = {}
+    for d, _, files in os.walk(os.path.join(claude_dir(), 'projects')):
+        for f in files:
+            if not f.endswith('.jsonl'): continue
+            p = os.path.join(d, f)
+            try: st = os.stat(p)
+            except OSError: continue
+            out[p] = [st.st_size, int(st.st_mtime)]
+    return out
+
+
+def write(j):
+    out = index_path()
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    tmp = '%s.%d.tmp' % (out, os.getpid())
+    with open(tmp, 'w') as fh: json.dump(j, fh, separators=(',', ':'))
+    os.replace(tmp, out)
+
+
+def tz():
+    off = datetime.now().astimezone().utcoffset().total_seconds() // 60
+    return '%s%02d:%02d' % ('-' if off < 0 else '+', abs(off) // 60, abs(off) % 60)
+
+
+def run(rebuild=False):
+    t0 = time.time()
+    old = {} if rebuild else load()
+    now = transcripts()
+    keep, changed, skipped = {}, 0, 0
+    for path, r in old.items():
+        if path not in now: r['pruned'] = True; keep[path] = r
+        elif [r.get('size'), r.get('mtime')] == now[path]: keep[path] = r
+    for path, r in keep.items():
+        if path in now: r['pruned'] = False  # a transcript that came back
+    for path in sorted(now):
+        if path in keep: continue
+        # one odd file (a usage that is not a dict, say) must not stop the run
+        try: r = parse(path)
+        except Exception: skipped += 1; continue
+        r['size'], r['mtime'] = now[path]
+        skipped += r['skipped']; changed += 1; keep[path] = r
+    write({'v': V, 'builtAt': datetime.now().astimezone().isoformat(timespec='seconds'), 'tz': tz(), 'sessions': keep})
+    return {'ok': True, 'files': len(now), 'changed': changed, 'skipped': skipped, 'ms': int((time.time() - t0) * 1000)}
+
+
+if __name__ == '__main__':
+    mode = sys.argv[1] if len(sys.argv) > 1 else 'index'
+    if mode not in ('index', 'rebuild'):
+        print('usage: history.py index|rebuild', file=sys.stderr); sys.exit(2)
+    try:
+        print(json.dumps(run(mode == 'rebuild')))
+    except Exception as err:
+        print(json.dumps({'ok': False, 'error': '%s: %s' % (type(err).__name__, err)})); sys.exit(1)

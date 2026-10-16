@@ -1,4 +1,4 @@
-import os, tempfile, unittest
+import json, os, subprocess, sys, tempfile, time, unittest
 
 from fixtures import SID, reply, tool_use, user, write
 import history
@@ -115,6 +115,76 @@ class ParseTest(unittest.TestCase):
                                         user('u2', '2026-10-16T06:31:00Z', branch='feat/x', version='2.1.276')])
         self.assertEqual(r['branches'], {'feat/x': 1})
         self.assertEqual(r['versions'], {'2.1.301': 1, '2.1.276': 1})
+
+
+class IndexTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        os.environ['SESSION_DASH_CLAUDE_DIR'] = self.tmp.name
+        self.a = os.path.join(self.tmp.name, 'projects', '-home-me-STS-app', SID + '.jsonl')
+        write(self.a, [user('u1', '2026-10-16T06:30:00Z'), reply('a1', '2026-10-16T06:30:05Z', 'm1')])
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def index(self):
+        with open(history.index_path()) as fh:
+            return json.load(fh)
+
+    def test_first_run_indexes_every_file(self):
+        rep = history.run()
+        self.assertEqual((rep['ok'], rep['files'], rep['changed'], rep['skipped']), (True, 1, 1, 0))
+        j = self.index()
+        self.assertEqual(j['v'], 1)
+        self.assertRegex(j['tz'], r'^[+-]\d\d:\d\d$')
+        self.assertEqual(j['sessions'][self.a]['models']['claude-opus-5']['calls'], 1)
+
+    def test_unchanged_file_is_not_parsed_again(self):
+        history.run()
+        self.assertEqual(history.run()['changed'], 0)
+
+    def test_grown_file_is_parsed_again(self):
+        history.run()
+        with open(self.a, 'a') as fh:
+            fh.write(json.dumps(reply('a2', '2026-10-16T06:40:05Z', 'm2')) + '\n')
+        os.utime(self.a, (time.time() + 5, time.time() + 5))
+        self.assertEqual(history.run()['changed'], 1)
+        self.assertEqual(self.index()['sessions'][self.a]['models']['claude-opus-5']['calls'], 2)
+
+    def test_deleted_transcript_is_kept_as_pruned(self):
+        history.run()
+        os.remove(self.a)
+        history.run()
+        r = self.index()['sessions'][self.a]
+        self.assertTrue(r['pruned'])
+        self.assertEqual(r['models']['claude-opus-5']['calls'], 1)
+
+    def test_old_version_or_broken_index_rebuilds(self):
+        os.makedirs(os.path.dirname(history.index_path()), exist_ok=True)
+        for text in ('{"v": 0, "sessions": {}}', '{broken'):
+            with open(history.index_path(), 'w') as fh:
+                fh.write(text)
+            self.assertEqual(history.run()['changed'], 1)
+
+    def test_one_bad_file_does_not_stop_the_run(self):
+        bad = os.path.join(os.path.dirname(self.a), 'agent-bad.jsonl')
+        write(bad, [reply('a1', '2026-10-16T06:30:05Z', 'm1', usage='not a dict')])
+        rep = history.run()
+        self.assertTrue(rep['ok'])
+        self.assertEqual((rep['changed'], rep['skipped']), (1, 1))
+
+    def test_rebuild_reparses_everything(self):
+        history.run()
+        self.assertEqual(history.run(rebuild=True)['changed'], 1)
+
+    def test_cli_prints_report_and_runs_isolated(self):
+        out = subprocess.run([sys.executable, '-I', history.__file__, 'index'],
+                             capture_output=True, text=True, env={**os.environ}, check=True).stdout
+        self.assertTrue(json.loads(out)['ok'])
+
+    def test_cli_rejects_unknown_mode(self):
+        p = subprocess.run([sys.executable, '-I', history.__file__, 'nope'], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 2)
 
 
 if __name__ == '__main__':

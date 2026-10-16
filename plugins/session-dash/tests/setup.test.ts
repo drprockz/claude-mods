@@ -66,6 +66,8 @@ describe('setup', () => {
     await settle()
     expect(files.get(`${BIN}/statusline.sh`)).toBe('bundled statusline.sh')
     expect(files.get(`${BIN}/cost.py`)).toBe('bundled cost.py')
+    expect(files.get(`${BIN}/prices.py`)).toBe('bundled prices.py')
+    expect(files.get(`${BIN}/history.py`)).toBe('bundled history.py')
     const s = JSON.parse(files.get(SETTINGS)!)
     expect(s.model).toBe('opus')
     expect(s.statusLine).toEqual({ type: 'command', command: STATUS_LINE_COMMAND })
@@ -93,6 +95,8 @@ describe('setup', () => {
       [SETTINGS, JSON.stringify({ statusLine: { type: 'command', command: STATUS_LINE_COMMAND } })],
       [`${BIN}/statusline.sh`, 'bundled statusline.sh'],
       [`${BIN}/cost.py`, 'bundled cost.py'],
+      [`${BIN}/prices.py`, 'bundled prices.py'],
+      [`${BIN}/history.py`, 'bundled history.py'],
     ])
     const runs: string[][] = []
     machine(on, files, runs)

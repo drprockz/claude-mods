@@ -3,7 +3,9 @@
 // cannot point into it. They are copied to one stable folder instead, and the
 // status line setting points there.
 
-export const BUNDLE = ['statusline.sh', 'cost.py'] as const
+// prices.py first: cost.py and history.py import it, and a copy that stops
+// partway must not leave the status line's cost.py without it.
+export const BUNDLE = ['prices.py', 'statusline.sh', 'cost.py', 'history.py'] as const
 
 export const binDir = (home: string) => `${home}/.claude/session-dash/bin`
 

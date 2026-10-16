@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { binDir, planStatusLine, STATUS_LINE_COMMAND, withStatusLine } from '../hooks/lib/install'
+import { BUNDLE, binDir, planStatusLine, STATUS_LINE_COMMAND, withStatusLine } from '../hooks/lib/install'
 
 describe('install', () => {
+  test('prices.py ships first, so a partial copy never strands cost.py', () => {
+    expect(BUNDLE[0]).toBe('prices.py')
+    expect([...BUNDLE].sort()).toEqual(['cost.py', 'history.py', 'prices.py', 'statusline.sh'])
+  })
   test('a machine with no status line gets ours', () => {
     expect(planStatusLine(undefined)).toBe('set')
     expect(planStatusLine(null)).toBe('set')
